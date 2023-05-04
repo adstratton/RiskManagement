@@ -1,0 +1,129 @@
+_schema-version: "3.1"
+ID: risk-management
+description: Template for the the SAP Extension Suite Learning Journey
+version: 1.0.0
+modules:
+- name: risk-management-srv
+  type: nodejs
+  path: gen/srv
+  requires:
+  - name: risk-management-db
+  - name: risk-management-xsuaa
+  - name: risk-management-destination-service
+  provides:
+  - name: srv-api
+    properties:
+      srv-url: ${default-url}
+  parameters:
+    buildpack: nodejs_buildpack
+  build-parameters:
+    builder: npm-ci
+- name: risk-management-db-deployer
+  type: hdb
+  path: gen/db
+  requires:
+  - name: risk-management-db
+  - name: risk-management-xsuaa
+  parameters:
+    buildpack: nodejs_buildpack
+- name: risk-management-app
+  type: html5
+  path: app
+  build-parameters:
+    builder: custom
+    commands:
+    - npm install
+    suppported-platforms: []
+- name: risk-management-approuter
+  type: nodejs
+  path: approuter
+  requires:
+  - name: risk-management-xsuaa
+  - name: srv-api
+    group: destinations
+    properties:
+      forwardAuthToken: true
+      name: srv-binding
+      strictSSL: true
+      url: ~{srv-url}
+  build-parameters:
+    requires:
+    - artifacts:
+      - ./*
+      name: risk-management-app
+      target-path: resources
+- name: risk-management-destination-content
+  type: com.sap.application.content
+  requires:
+  - name: risk-management-destination-service
+    parameters:
+      content-target: true
+  - name: risk-management_html_repo_host
+    parameters:
+      service-key:
+        name: risk-management_html_repo_host-key
+  - name: risk-management-xsuaa
+    parameters:
+      service-key:
+        name: risk-management-xsuaa-key
+  parameters:
+    content:
+      instance:
+        destinations:
+        - Name: riskmanagementApprouter_risk_management_html_repo_host
+          ServiceInstanceName: risk-management-html5-app-host-service
+          ServiceKeyName: risk-management_html_repo_host-key
+          sap.cloud.service: riskmanagementApprouter
+        - Authentication: OAuth2UserTokenExchange
+          Name: riskmanagementApprouter_risk_management_xsuaa
+          ServiceKeyName: risk-management-xsuaa-key
+          sap.cloud.service: riskmanagementApprouter
+        existing_destinations_policy: ignore
+  build-parameters:
+    no-source: true
+resources:
+- name: risk-management-db
+  type: com.sap.xs.hdi-container
+  parameters:
+    service: hana
+    service-plan: hdi-shared
+- name: risk-management-xsuaa
+  type: org.cloudfoundry.managed-service
+  parameters:
+    config:
+      role-collections:
+      - description: Manage Risks
+        name: RiskManager-${space}
+        role-template-references:
+        - $XSAPPNAME.RiskManager
+      - description: View Risks
+        name: RiskViewer-${space}
+        role-template-references:
+        - $XSAPPNAME.RiskViewer
+      tenant-mode: shared
+      xsappname: risk-management-ADS_DEV
+    path: ./xs-security.json
+    service: xsuaa
+    service-plan: application
+- name: risk-management-destination-service
+  type: org.cloudfoundry.managed-service
+  parameters:
+    config:
+      HTML5Runtime_enabled: true
+      version: 1.0.0
+    service: destination
+    service-name: risk-management-destination-service
+    service-plan: lite
+- name: risk-management_html_repo_host
+  type: org.cloudfoundry.managed-service
+  parameters:
+    service: html5-apps-repo
+    service-name: risk-management-html5-app-host-service
+    service-plan: app-host
+parameters:
+  enable-parallel-deployments: true
+build-parameters:
+  before-all:
+  - builder: custom
+    commands:
+    - npx -p @sap/cds-dk cds build --production
